@@ -10,7 +10,7 @@ on:
       pairs: {default: '60'}
       log2: {default: '18'}
       threads: {default: 'auto'}
-      runner: {default: 'macos-15'}
+      runner: {default: 'macos-latest'}
       shards: {description: JSON list of shard ids, default: '[1]'}
       budget: {description: seconds for the pair loop (0 = no limit), default: '0'}
       diag: {default: '0'}

@@ -24,6 +24,14 @@ echo "== preflight"
   echo "cpu=$(sysctl -n machdep.cpu.brand_string) ncpu=$(sysctl -n hw.ncpu) p=$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null) e=$(sysctl -n hw.perflevel1.physicalcpu 2>/dev/null) mem=$(( $(sysctl -n hw.memsize) / 1048576 ))MB"
   echo "l1d=$(sysctl -n hw.perflevel0.l1dcachesize 2>/dev/null) l2=$(sysctl -n hw.perflevel0.l2cachesize 2>/dev/null) model=$(sysctl -n hw.model)"
   system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset|Metal|Vendor|Type|VRAM" | tr -s ' ' | tr '\n' ';'; echo
+  cat > "$root/metal.swift" <<'SWIFT'
+import Metal
+if let d = MTLCreateSystemDefaultDevice() {
+  print("metal=\(d.name) unified=\(d.hasUnifiedMemory) lowpower=\(d.isLowPower) maxbuf=\(d.maxBufferLength >> 20)MB rec_ws=\(d.recommendedMaxWorkingSetSize >> 20)MB")
+} else { print("metal=none") }
+SWIFT
+  swift "$root/metal.swift" 2>/dev/null || echo "metal=probe-failed"
+  vm_stat | grep -E "Pages free|Pages active|Pages wired" | tr -s ' ' | tr '\n' ';'; echo
 } | tee "$out/runner.txt"
 
 for x in a b; do
@@ -76,6 +84,20 @@ mkdir -p "$root/mem" && rm -f "$root/mem/"*
   env -i RAYON_NUM_THREADS="$th" TMPDIR="$root/mem" /usr/bin/time -l "$wa" "$log2" "$root/mem/ready" "$root/mem/proof" 2> "$root/mem/time.txt" || fail "direct worker run"
 grep -E "real|maximum resident|peak memory" "$root/mem/time.txt" | tr -s ' ' | tr '\n' ';' | tee -a "$out/summary.txt"; echo | tee -a "$out/summary.txt"
 
+if [[ "$diag" == 2 ]]; then
+  echo "== diag2: size sweep (direct launch, A): wall, footprint, proof phases, GPU on/off"
+  for l in 14 15 16 17; do
+    for mode in gpu nogpu; do
+      rm -f "$root/mem/"*
+      extra=""; [[ $mode == nogpu ]] && extra="FLOCK_NO_GPU_COMMIT=1"
+      ( while [[ ! -f "$root/mem/ready" ]]; do sleep 0.02; done; echo 12345 ) | \
+        env -i RAYON_NUM_THREADS="$th" TMPDIR="$root/mem" FLOCK_COMMIT_TIMING=1 FLOCK_OPEN_TIMING=1 $extra \
+        /usr/bin/time -l "$wa" "$l" "$root/mem/ready" "$root/mem/proof" 2> "$root/mem/sweep-$l-$mode.txt"
+      echo "sweep log2=$l $mode: $(grep -E " real|peak memory footprint|maximum resident" "$root/mem/sweep-$l-$mode.txt" | tr -s ' ' | tr '\n' ';') lig-prove: $(grep -E "lig-prove. total" "$root/mem/sweep-$l-$mode.txt" | awk '{print $(NF-1)}' | tr '\n' ' ') commit: $(grep -E "commit-timing" "$root/mem/sweep-$l-$mode.txt" | awk '{print $2 $3}' | tr '\n' ' ')" | tee -a "$out/summary.txt"
+    done
+  done
+  echo "-- full stderr log2=17 gpu"; cat "$root/mem/sweep-17-gpu.txt" | cut -c1-200 | head -120
+fi
 if [[ "$diag" == 1 ]]; then
   echo "== diag: commit/open timing, GPU on vs off (direct launch, A)"
   for mode in gpu nogpu; do
@@ -92,6 +114,7 @@ fi
 }
 
 phase_verify() {
+[[ "$pairs" == 0 ]] && return 0
 echo "== trusted verifier (benchmark.sh; private seeds) at log2=10 and log2=$log2"
 for X in A B; do
   for l in 10 "$log2"; do
@@ -109,6 +132,7 @@ done
 }
 
 phase_pair() {
+[[ "$pairs" == 0 ]] && return 0
 echo "== paired interleaved timing"
 python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --name-a "$name_a" --name-b "$name_b" \
   --pairs "$pairs" --log2 "$log2" --threads "$threads" --seed0 "$seed0" --budget "$budget" \
