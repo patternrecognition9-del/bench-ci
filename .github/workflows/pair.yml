@@ -37,13 +37,45 @@ jobs:
       - uses: actions/checkout@v4
         if: ${{ inputs.q != '' }}
         with: {ref: '${{ inputs.q }}', path: q, persist-credentials: false}
-      - name: run
+      - name: prep
         shell: bash
         env:
           RIG_KEY: ${{ secrets.RIG_KEY }}
         run: |
-          mv rig-src/rig rig
-          bash rig/job.sh "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+          [[ -d rig ]] || mv rig-src/rig rig
+          bash rig/job.sh prep "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}"
+      - name: build
+        shell: bash
+        env:
+          RIG_KEY: ${{ secrets.RIG_KEY }}
+        run: |
+          [[ -d rig ]] || mv rig-src/rig rig
+          bash rig/job.sh build "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}"
+      - name: probe
+        shell: bash
+        env:
+          RIG_KEY: ${{ secrets.RIG_KEY }}
+        run: |
+          [[ -d rig ]] || mv rig-src/rig rig
+          bash rig/job.sh probe "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}"
+      - name: verify
+        shell: bash
+        env:
+          RIG_KEY: ${{ secrets.RIG_KEY }}
+        run: |
+          [[ -d rig ]] || mv rig-src/rig rig
+          bash rig/job.sh verify "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}"
+      - name: pair
+        shell: bash
+        env:
+          RIG_KEY: ${{ secrets.RIG_KEY }}
+        run: |
+          [[ -d rig ]] || mv rig-src/rig rig
+          bash rig/job.sh pair "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
             "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}"
       - uses: actions/upload-artifact@v4
         if: always()

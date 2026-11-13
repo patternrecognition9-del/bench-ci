@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# usage: job.sh NAME_A NAME_B PAIRS LOG2 THREADS SEED0 BUDGET DIAG
+# usage: job.sh PHASE NAME_A NAME_B PAIRS LOG2 THREADS SEED0 BUDGET DIAG   (PHASE: prep build probe verify pair all)
 # cwd holds A/ B/ (checkouts), rig/ (this dir), optionally q/{a,b}.enc (encrypted patches).
 set -uo pipefail
+phase="$1"; shift
 name_a="$1"; name_b="$2"; pairs="$3"; log2="$4"; threads="$5"; seed0="$6"; budget="$7"; diag="${8:-0}"
 root="$PWD"; out="$root/out"; mkdir -p "$out"
 now() { python3 -c 'import time;print("%.1f"%time.time())'; }
@@ -9,7 +10,14 @@ enc() { # encrypt a private log into the artifact dir; public log never shows it
   [[ -n "${RIG_KEY:-}" && -f "$1" ]] && openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:RIG_KEY -in "$1" -out "$out/$(basename "$1").enc" || true
 }
 fail() { echo "RIGFAIL $*"; echo "RIGFAIL $*" >> "$out/summary.txt"; exit 1; }
+private=0; [[ -f "$root/q/a.enc" || -f "$root/q/b.enc" ]] && private=1
+export RUSTUP_TOOLCHAIN=1.97.0 FLOCK_REQUIRE_SANDBOX=1
+[[ -f "$out/rustflags" ]] && export RUSTFLAGS="$(cat "$out/rustflags")"
+wa="$root/A/target/challenge-candidate/challenge/flock-benchmark-worker"
+wb="$root/B/target/challenge-candidate/challenge/flock-benchmark-worker"
+th="$threads"; [[ "$th" == auto ]] && th=$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.ncpu)
 
+phase_prep() {
 echo "== preflight"
 {
   sw_vers | tr '\n' ' '; echo
@@ -18,10 +26,8 @@ echo "== preflight"
   system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset|Metal|Vendor|Type|VRAM" | tr -s ' ' | tr '\n' ';'; echo
 } | tee "$out/runner.txt"
 
-private=0
 for x in a b; do
   if [[ -f "$root/q/$x.enc" ]]; then
-    private=1
     X=$(echo "$x" | tr a-z A-Z)
     [[ -n "${RIG_KEY:-}" ]] || fail "patch for $X but no key"
     openssl enc -d -aes-256-cbc -pbkdf2 -pass env:RIG_KEY -in "$root/q/$x.enc" -out "$root/$x.patch" || fail "decrypt $X"
@@ -33,16 +39,18 @@ done
 
 echo "== toolchain"
 rustup toolchain install 1.97.0 --profile minimal >/dev/null 2>&1 || fail "toolchain"
-export RUSTUP_TOOLCHAIN=1.97.0 FLOCK_REQUIRE_SANDBOX=1
 # Virtualized runners hide the CPU family from LLVM: "native" then lacks aes/sha3 and the
 # NEON kernels do not compile. Name the real core instead (M1 = the scorer's set minus bf16/i8mm/bti).
 cpu=native
 rustc --print cfg -C target-cpu=native | grep -q '"sha3"' || cpu="${RIG_CPU:-apple-m1}"
 export RUSTFLAGS="-C target-cpu=$cpu"
+echo "$RUSTFLAGS" > "$out/rustflags"
 echo "RUSTFLAGS=$RUSTFLAGS" | tee -a "$out/summary.txt"
 cargo fetch --locked --manifest-path "$root/A/Cargo.toml" >/dev/null 2>&1 || true
 rustc --version
+}
 
+phase_build() {
 echo "== build (setup.sh, challenge profile)"
 for X in A B; do
   t0=$(now)
@@ -58,12 +66,11 @@ for X in A B; do
   echo "build $X wall=${secs}s"
 done
 echo "build A=${build_A}s B=${build_B}s" | tee -a "$out/summary.txt"
-wa="$root/A/target/challenge-candidate/challenge/flock-benchmark-worker"
-wb="$root/B/target/challenge-candidate/challenge/flock-benchmark-worker"
 ls -l "$wa" "$wb" | awk '{print "worker bytes", $5}'
+}
 
+phase_probe() {
 echo "== peak memory of one proof (/usr/bin/time -l, log2=$log2)"
-th="$threads"; [[ "$th" == auto ]] && th=$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.ncpu)
 mkdir -p "$root/mem" && rm -f "$root/mem/"*
 ( while [[ ! -f "$root/mem/ready" ]]; do sleep 0.05; done; echo 12345 ) | \
   env -i RAYON_NUM_THREADS="$th" TMPDIR="$root/mem" /usr/bin/time -l "$wa" "$log2" "$root/mem/ready" "$root/mem/proof" 2> "$root/mem/time.txt" || fail "direct worker run"
@@ -82,6 +89,9 @@ if [[ "$diag" == 1 ]]; then
   done
 fi
 
+}
+
+phase_verify() {
 echo "== trusted verifier (benchmark.sh; private seeds) at log2=10 and log2=$log2"
 for X in A B; do
   for l in 10 "$log2"; do
@@ -96,6 +106,9 @@ for X in A B; do
   done
 done
 
+}
+
+phase_pair() {
 echo "== paired interleaved timing"
 python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --name-a "$name_a" --name-b "$name_b" \
   --pairs "$pairs" --log2 "$log2" --threads "$threads" --seed0 "$seed0" --budget "$budget" \
@@ -104,3 +117,9 @@ rc=${PIPESTATUS[0]}
 grep -E "^(pair|identical|detail|env) " "$root/pair.log" >> "$out/summary.txt"
 [[ $rc == 0 ]] || fail "pair driver rc=$rc"
 echo "== summary"; cat "$out/summary.txt"
+}
+
+case "$phase" in
+  all) phase_prep; phase_build; phase_probe; phase_verify; phase_pair ;;
+  *) "phase_$phase" ;;
+esac
