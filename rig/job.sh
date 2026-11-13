@@ -33,7 +33,13 @@ done
 
 echo "== toolchain"
 rustup toolchain install 1.97.0 --profile minimal >/dev/null 2>&1 || fail "toolchain"
-export RUSTUP_TOOLCHAIN=1.97.0 RUSTFLAGS="-C target-cpu=native" FLOCK_REQUIRE_SANDBOX=1
+export RUSTUP_TOOLCHAIN=1.97.0 FLOCK_REQUIRE_SANDBOX=1
+# Virtualized runners hide the CPU family from LLVM: "native" then lacks aes/sha3 and the
+# NEON kernels do not compile. Name the real core instead (M1 = the scorer's set minus bf16/i8mm/bti).
+cpu=native
+rustc --print cfg -C target-cpu=native | grep -q '"sha3"' || cpu="${RIG_CPU:-apple-m1}"
+export RUSTFLAGS="-C target-cpu=$cpu"
+echo "RUSTFLAGS=$RUSTFLAGS" | tee -a "$out/summary.txt"
 cargo fetch --locked --manifest-path "$root/A/Cargo.toml" >/dev/null 2>&1 || true
 rustc --version
 
@@ -45,7 +51,7 @@ for X in A B; do
   secs=$(python3 -c "print('%.1f'%($t1-$t0))")
   eval "build_$X=$secs"
   if [[ $rc != 0 ]]; then
-    if [[ $private == 1 ]]; then enc "$root/build-$X.log"; else tail -40 "$root/build-$X.log"; fi
+    if [[ $private == 1 ]]; then enc "$root/build-$X.log"; else grep -A12 "^error" "$root/build-$X.log" | head -80; fi
     fail "build $X rc=$rc after ${secs}s"
   fi
   grep -c "warning" "$root/build-$X.log" | sed "s/^/build $X warnings=/"
