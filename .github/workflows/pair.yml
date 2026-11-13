@@ -1,0 +1,53 @@
+name: pair
+run-name: pair ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      a: {description: ref A, required: true}
+      b: {description: ref B, required: true}
+      q: {description: optional branch with a.enc / b.enc, default: ''}
+      pairs: {default: '60'}
+      log2: {default: '18'}
+      threads: {default: 'auto'}
+      runner: {default: 'macos-15'}
+      shards: {description: JSON list of shard ids, default: '[1]'}
+      budget: {description: seconds for the pair loop (0 = no limit), default: '0'}
+      diag: {default: '0'}
+      tag: {default: ''}
+
+permissions:
+  contents: read
+
+jobs:
+  pair:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: rig-src, persist-credentials: false}
+      - uses: actions/checkout@v4
+        with: {ref: '${{ inputs.a }}', path: A, persist-credentials: false}
+      - uses: actions/checkout@v4
+        with: {ref: '${{ inputs.b }}', path: B, persist-credentials: false}
+      - uses: actions/checkout@v4
+        if: ${{ inputs.q != '' }}
+        with: {ref: '${{ inputs.q }}', path: q, persist-credentials: false}
+      - name: run
+        shell: bash
+        env:
+          RIG_KEY: ${{ secrets.RIG_KEY }}
+        run: |
+          mv rig-src/rig rig
+          bash rig/job.sh "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ matrix.shard }}
+          path: out/
+          if-no-files-found: warn
