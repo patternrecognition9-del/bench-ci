@@ -65,7 +65,9 @@ rustc --version
 
 phase_build() {
 echo "== build (setup.sh, challenge profile)"
-for X in A B; do
+order="A B"; (( seed0 % 2 == 0 )) && order="B A"   # even shards build B first: the first build of a job runs cold
+echo "build order: $order"
+for X in $order; do
   t0=$(now)
   ( cd "$root/$X" && /usr/bin/time -p ./setup.sh ) > "$root/build-$X.log" 2>&1; rc=$?
   t1=$(now)
@@ -78,7 +80,7 @@ for X in A B; do
   fi
   echo "build $X wall=${secs}s cpu=${cpu}s warnings=$(grep -c "^warning" "$root/build-$X.log")"
 done
-echo "build A=${build_A}s B=${build_B}s cpu A=${cpu_A}s B=${cpu_B}s cpu_ratio_B/A=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A}))")" | tee -a "$out/summary.txt"
+echo "build order=${order/ /} A=${build_A}s B=${build_B}s cpu A=${cpu_A}s B=${cpu_B}s cpu_ratio_B/A=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A}))")" | tee -a "$out/summary.txt"
 ls -l "$wa" "$wb" | awk '{print "worker bytes", $5}'
 }
 
