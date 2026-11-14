@@ -162,7 +162,7 @@ phase_cmd() {
 [[ -n "${RIG_KEY:-}" ]] || fail "cmd but no key"
 openssl enc -d -aes-256-cbc -pbkdf2 -pass env:RIG_KEY -in "$root/q/cmd.enc" -out "$root/cmd.sh" || fail "decrypt cmd"
 # The runner is virtual: "native" hides aes/sha3 from rustc (the kernels then fail to compile), and it has its own 3-5 cores.
-tcpu="${RUSTFLAGS##*target-cpu=}"; tcpu="${tcpu%% *}"
+rf="${RUSTFLAGS:-}"; tcpu="${rf##*target-cpu=}"; tcpu="${tcpu%% *}"
 sed -i '' -e "s/target-cpu=native/target-cpu=${tcpu:-apple-m1}/g" -e 's/CARGO_BUILD_JOBS=1//g' "$root/cmd.sh"
 sides="B"; [[ -f "$root/q/cmd-both" ]] && sides="A B"
 export RIG_ROOT="$root" RIG_A="$root/A" RIG_B="$root/B" RIG_OUT="$out" RIG_THREADS="$th" CARGO_INCREMENTAL=0
