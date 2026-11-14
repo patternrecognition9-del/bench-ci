@@ -101,7 +101,11 @@ print('cpu_ratio_minB/minA=%.3f cpu_ratio_B/A2=%.3f spread_A=%.3f spread_B=%.3f'
     mkdir -p "$ac" && cp "$wa" "$ac/flock-benchmark-worker" && echo "hw=$hw cpu A1(cold)=${cpu_A}s A2=${cpu_A2}s wall A1=${build_A}s A2=${build_A2}s" > "$ac/meta"
   fi
 fi
-ls -l "$wa" "$wb" | awk '{print "worker bytes", $5}'
+for X in A B; do
+  d="$root/$X/target/challenge-candidate/challenge"
+  [[ -x "$d/flock-benchmark-worker" ]] || continue
+  echo "codesize $X core_rlib=$(ls -l "$d"/deps/libflock_core-*.rlib 2>/dev/null | awk '{s+=$5} END{print s+0}') prover_rlib=$(ls -l "$d"/deps/libflock_prover-*.rlib 2>/dev/null | awk '{s+=$5} END{print s+0}') worker=$(ls -l "$d/flock-benchmark-worker" | awk '{print $5}') text=$(size -m "$d/flock-benchmark-worker" 2>/dev/null | awk '/Section __text:/{print $3; exit}') syms=$(nm "$d/flock-benchmark-worker" 2>/dev/null | wc -l | tr -d ' ')" | tee -a "$out/summary.txt"
+done
 }
 
 phase_probe() {
@@ -217,7 +221,7 @@ for l in 12 16 18; do
   line=$(grep "^identical=" "$root/ident-$l.log")
   echo "ident log2=$l $line"
   [[ "$line" == identical=yes* ]] || ok=no
-  if [[ $l == 16 || ( $l == 18 && $memmb -ge 12000 ) ]]; then
+  if [[ ( $l == 16 || $l == 18 ) && $memmb -ge 12000 ]]; then
     python3 - "$out/ident-$l.json" "$l" <<'PY' | tee -a "$out/summary.txt"
 import json, statistics, sys
 j = json.load(open(sys.argv[1]))
