@@ -73,7 +73,7 @@ echo "== build (setup.sh, challenge profile)"
 # B carries the cold handicap, so B/A <= 1.06 is a safe PASS; anything above is inconclusive and wants the full tier.
 ac="$root/acache"; lite=0
 [[ -f "$root/q/lite" && ! -f "$root/q/a.enc" && -f "$ac/flock-benchmark-worker" && -f "$ac/meta" ]] && lite=1
-seq="A B A2 B2"; [[ $lite == 1 ]] && seq="B A"
+seq="A B"; [[ $lite == 1 ]] && seq="B A"   # build cost comes from __text (deterministic); repeats bought nothing
 for X in $seq; do
   D=${X%2}
   [[ $X == A2 ]] && rm -rf "$root/A/target/challenge-candidate"
@@ -94,11 +94,9 @@ hw="$(sysctl -n machdep.cpu.brand_string | tr -d ' ()')-${memmb}"
 if [[ $lite == 1 ]]; then
   echo "build lite hw=$hw B(cold)=${build_B}s A(after B)=${build_A}s cpu B=${cpu_B}s A=${cpu_A}s cpu_ratio_Bcold/A=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A}))") | cached record build: $(cat "$ac/meta")" | tee -a "$out/summary.txt"
 else
-  echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s B2=${build_B2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s B2=${cpu_B2}s $(python3 -c "
-a=[${cpu_A},${cpu_A2}]; b=[${cpu_B},${cpu_B2}]
-print('cpu_ratio_minB/minA=%.3f cpu_ratio_B/A2=%.3f spread_A=%.3f spread_B=%.3f' % (min(b)/min(a), b[0]/a[1], max(a)/min(a), max(b)/min(b)))") hw=$hw" | tee -a "$out/summary.txt"
+  echo "build A=${build_A}s B=${build_B}s cpu A=${cpu_A}s B=${cpu_B}s hw=$hw (runner seconds: reference only)" | tee -a "$out/summary.txt"
   if [[ ! -f "$root/q/a.enc" && ! -f "$ac/meta" ]]; then
-    mkdir -p "$ac" && cp "$wa" "$ac/flock-benchmark-worker" && echo "hw=$hw cpu A1(cold)=${cpu_A}s A2=${cpu_A2}s wall A1=${build_A}s A2=${build_A2}s" > "$ac/meta"
+    mkdir -p "$ac" && cp "$wa" "$ac/flock-benchmark-worker" && echo "hw=$hw cpu A=${cpu_A}s wall A=${build_A}s" > "$ac/meta"
   fi
 fi
 for X in A B; do
