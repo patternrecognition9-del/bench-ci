@@ -178,10 +178,10 @@ done
 
 phase_ident() {
 [[ "$pairs" == 0 ]] && return 0
-echo "== same-seed proof bytes A vs B (log2 12, 16: 2 seeds each; log2 18: 1 seed)"
+echo "== same-seed proof bytes A vs B (log2 12, 16: 4 seeds each; log2 18: 1 seed, 4 on a 14 GB runner)"
 ok=yes
 for l in 12 16 18; do
-  n=4; [[ $l == 18 ]] && n=2
+  n=4; [[ $l == 18 ]] && n=1; [[ $l == 18 && $memmb -ge 12000 ]] && n=4
   python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --pairs $n --log2 $l --threads "$threads" --seed0 $((seed0 + l)) \
     --no-aa --warm 0 --half --scratch "$root/ident-scratch" --out "$out/ident-$l.json" > "$root/ident-$l.log" 2>&1 || { tail -5 "$root/ident-$l.log"; fail "ident driver log2=$l"; }
   line=$(grep "^identical=" "$root/ident-$l.log")
