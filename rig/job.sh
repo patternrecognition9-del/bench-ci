@@ -170,7 +170,9 @@ sides="B"; [[ -f "$root/q/cmd-both" ]] && sides="A B"
 export RIG_ROOT="$root" RIG_A="$root/A" RIG_B="$root/B" RIG_OUT="$out" RIG_THREADS="$th" CARGO_INCREMENTAL=0
 for X in $sides; do
   t0=$(now)
-  ( cd "$root/$X" && RIG_SIDE=$X bash "$root/cmd.sh" ) > "$root/cmd-$X.log" 2>&1; rc=$?
+  # 45 min cap so the output still comes back before the 75 min job limit
+  ( cd "$root/$X" && RIG_SIDE=$X perl -e 'alarm shift; exec @ARGV' 2700 bash "$root/cmd.sh" ) > "$root/cmd-$X.log" 2>&1; rc=$?
+  [[ $rc == 142 ]] && echo "RIG: command killed after 45 min (alarm)" >> "$root/cmd-$X.log"
   t1=$(now)
   echo "cmd $X rc=$rc secs=$(python3 -c "print('%.0f'%($t1-$t0))") lines=$(wc -l < "$root/cmd-$X.log" | tr -d ' ')" | tee -a "$out/summary.txt"
   enc "$root/cmd-$X.log"
