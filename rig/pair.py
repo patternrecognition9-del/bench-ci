@@ -175,7 +175,10 @@ def main():
 
     threads = auto_threads() if a.threads == "auto" else int(a.threads)
     wa, wb = os.path.realpath(a.a), os.path.realpath(a.b)
-    wa2 = os.path.join(os.path.dirname(os.path.realpath(a.out)) or ".", "worker-A-copy")
+    # The copy keeps the real file name: trees key their ranked path on argv[0] ("flock-benchmark-worker" + 3 args).
+    cdir = os.path.join(os.path.dirname(os.path.realpath(a.out)) or ".", "Acopy")
+    os.makedirs(cdir, exist_ok=True)
+    wa2 = os.path.join(cdir, os.path.basename(wa))
     shutil.copy2(wa, wa2)
     extra = dict(kv.split("=", 1) for kv in a.env if "=" in kv)
     run = Runner(a.scratch, a.log2, threads, not a.no_sandbox, a.timeout, extra)
