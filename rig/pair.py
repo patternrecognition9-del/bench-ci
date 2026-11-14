@@ -30,8 +30,11 @@ def auto_threads():
 
 
 class Runner:
-    def __init__(self, scratch, log2, threads, sandbox, timeout, extra_env=None):
+    def __init__(self, scratch, log2, threads, sandbox, timeout, extra_env=None, stderr_dir=None):
         self.extra_env = dict(extra_env or {})
+        self.stderr_dir, self.n = stderr_dir, 0
+        if stderr_dir:
+            os.makedirs(stderr_dir, exist_ok=True)
         self.scratch = os.path.realpath(scratch)
         self.log2 = str(log2)
         self.threads = str(threads)
@@ -57,9 +60,11 @@ class Runner:
             argv = ["/usr/bin/sandbox-exec", "-f", self.profile] + argv
         env = {"RAYON_NUM_THREADS": self.threads, "TMPDIR": sc}
         env.update(self.extra_env)
+        self.n += 1
+        err = open(os.path.join(self.stderr_dir, "trial-%04d.err" % self.n), "wb") if self.stderr_dir else subprocess.DEVNULL
         t_spawn = time.perf_counter()
         p = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=err)
         dfd = os.open(sc, os.O_RDONLY)
         kq = select.kqueue()
         ev = select.kevent(dfd, filter=select.KQ_FILTER_VNODE,
@@ -170,6 +175,7 @@ def main():
     ap.add_argument("--warm", type=int, default=2, help="discarded trials per binary first")
     ap.add_argument("--budget", type=float, default=0, help="stop adding blocks after N seconds")
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--stderr-dir", help="keep each worker's stderr here (the harness discards it)")
     ap.add_argument("--expect", help="json {seed: sha} of A's proofs: run B only and compare")
     ap.add_argument("--save-expect", help="write A's {seed: sha} here")
     ap.add_argument("--half", action="store_true", help="identity mode: one A and one B proof per seed")
@@ -184,7 +190,7 @@ def main():
     wa2 = os.path.join(cdir, os.path.basename(wa))
     shutil.copy2(wa, wa2)
     extra = dict(kv.split("=", 1) for kv in a.env if "=" in kv)
-    run = Runner(a.scratch, a.log2, threads, not a.no_sandbox, a.timeout, extra)
+    run = Runner(a.scratch, a.log2, threads, not a.no_sandbox, a.timeout, extra, a.stderr_dir)
     rng = random.Random(a.seed0)
     t_start = time.time()
 
