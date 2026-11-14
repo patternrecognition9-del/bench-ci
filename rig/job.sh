@@ -73,10 +73,11 @@ echo "== build (setup.sh, challenge profile)"
 # from the job that first built this base.
 ac="$root/acache"; lite=0
 [[ -f "$root/q/lite" && ! -f "$root/q/a.enc" && -f "$ac/flock-benchmark-worker" && -f "$ac/meta" ]] && lite=1
-seq="A B A2"; [[ $lite == 1 ]] && seq="B"
+seq="A B A2 B2"; [[ $lite == 1 ]] && seq="B"
 for X in $seq; do
   D=${X%2}
   [[ $X == A2 ]] && rm -rf "$root/A/target/challenge-candidate"
+  [[ $X == B2 ]] && rm -rf "$root/B/target/challenge-candidate"
   t0=$(now)
   ( cd "$root/$D" && /usr/bin/time -p ./setup.sh ) > "$root/build-$X.log" 2>&1; rc=$?
   t1=$(now)
@@ -94,7 +95,9 @@ if [[ $lite == 1 ]]; then
   mkdir -p "$(dirname "$wa")" && cp "$ac/flock-benchmark-worker" "$wa" && chmod +x "$wa"
   echo "build lite hw=$hw B(cold)=${build_B}s cpu B=${cpu_B}s | cached record build: $(cat "$ac/meta")" | tee -a "$out/summary.txt"
 else
-  echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s wall_ratio_B/A2=$(python3 -c "print('%.3f'%(${build_B}/${build_A2}))") cpu_ratio_B/A2=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A2}))") cold_A1/A2=$(python3 -c "print('%.3f'%(${cpu_A}/${cpu_A2}))") hw=$hw" | tee -a "$out/summary.txt"
+  echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s B2=${build_B2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s B2=${cpu_B2}s $(python3 -c "
+a=[${cpu_A},${cpu_A2}]; b=[${cpu_B},${cpu_B2}]
+print('cpu_ratio_minB/minA=%.3f cpu_ratio_B/A2=%.3f spread_A=%.3f spread_B=%.3f' % (min(b)/min(a), b[0]/a[1], max(a)/min(a), max(b)/min(b)))") hw=$hw" | tee -a "$out/summary.txt"
   if [[ ! -f "$root/q/a.enc" && ! -f "$ac/meta" ]]; then
     mkdir -p "$ac" && cp "$wa" "$ac/flock-benchmark-worker" && echo "hw=$hw cpu A1(cold)=${cpu_A}s A2=${cpu_A2}s wall A1=${build_A}s A2=${build_A2}s" > "$ac/meta"
   fi
