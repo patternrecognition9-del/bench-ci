@@ -12,6 +12,10 @@ enc() { # encrypt a private log into the artifact dir; public log never shows it
 fail() { echo "RIGFAIL $*"; echo "RIGFAIL $*" >> "$out/summary.txt"; exit 1; }
 private=0; [[ -f "$root/q/a.enc" || -f "$root/q/b.enc" ]] && private=1
 export RUSTUP_TOOLCHAIN=1.97.0 FLOCK_REQUIRE_SANDBOX=1
+# setup.sh exports CC, benchmark.sh does not: the cc build script (sha2-asm) then sees a changed
+# env and cargo rebuilds the whole worker inside benchmark.sh. Pin CC so both see the same value
+# (RIG_KEEP_CC_SKEW=1 reproduces the scorer's double build).
+[[ "${RIG_KEEP_CC_SKEW:-0}" == 1 ]] || export CC="$(xcrun --find clang 2>/dev/null)"
 [[ -f "$out/rustflags" ]] && export RUSTFLAGS="$(cat "$out/rustflags")"
 wa="$root/A/target/challenge-candidate/challenge/flock-benchmark-worker"
 wb="$root/B/target/challenge-candidate/challenge/flock-benchmark-worker"
@@ -141,7 +145,7 @@ for X in A B; do
       echo "verify $X log2=$l REJECTED" | tee -a "$out/summary.txt"
       fail "trusted verifier rejected $X at log2=$l"
     fi
-    echo "verify $X log2=$l OK $(grep -E 'Median latency|Threads' "$root/verify-$X-$l.log" | tr -d '\n')" | tee -a "$out/summary.txt"
+    echo "verify $X log2=$l OK $(grep -E 'Median latency|Threads' "$root/verify-$X-$l.log" | tr -d '\n') recompiled=$(grep -c '^ *Compiling' "$root/verify-$X-$l.log")" | tee -a "$out/summary.txt"
   done
 done
 
