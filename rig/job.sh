@@ -69,11 +69,11 @@ phase_build() {
 [[ -f "$root/q/nobuild" ]] && return 0
 echo "== build (setup.sh, challenge profile)"
 # Full tier: A (cold, warms the toolchain and the disk cache) -> B -> A again from scratch; the gate number is B vs the SECOND A.
-# Lite tier (q/lite + the record's worker in the Actions cache): build B only; A's worker, build seconds and proof hashes come
-# from the job that first built this base.
+# Lite tier (q/lite + this base in the Actions cache): build B (cold slot) then A once; A's proof hashes come from the cache.
+# B carries the cold handicap, so B/A <= 1.06 is a safe PASS; anything above is inconclusive and wants the full tier.
 ac="$root/acache"; lite=0
 [[ -f "$root/q/lite" && ! -f "$root/q/a.enc" && -f "$ac/flock-benchmark-worker" && -f "$ac/meta" ]] && lite=1
-seq="A B A2 B2"; [[ $lite == 1 ]] && seq="B"
+seq="A B A2 B2"; [[ $lite == 1 ]] && seq="B A"
 for X in $seq; do
   D=${X%2}
   [[ $X == A2 ]] && rm -rf "$root/A/target/challenge-candidate"
@@ -92,8 +92,7 @@ for X in $seq; do
 done
 hw="$(sysctl -n machdep.cpu.brand_string | tr -d ' ()')-${memmb}"
 if [[ $lite == 1 ]]; then
-  mkdir -p "$(dirname "$wa")" && cp "$ac/flock-benchmark-worker" "$wa" && chmod +x "$wa"
-  echo "build lite hw=$hw B(cold)=${build_B}s cpu B=${cpu_B}s | cached record build: $(cat "$ac/meta")" | tee -a "$out/summary.txt"
+  echo "build lite hw=$hw B(cold)=${build_B}s A(after B)=${build_A}s cpu B=${cpu_B}s A=${cpu_A}s cpu_ratio_Bcold/A=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A}))") | cached record build: $(cat "$ac/meta")" | tee -a "$out/summary.txt"
 else
   echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s B2=${build_B2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s B2=${cpu_B2}s $(python3 -c "
 a=[${cpu_A},${cpu_A2}]; b=[${cpu_B},${cpu_B2}]
