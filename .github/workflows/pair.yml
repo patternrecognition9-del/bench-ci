@@ -62,6 +62,14 @@ jobs:
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh probe "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
             "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+      - name: cmd
+        shell: bash
+        env:
+          RIG_KEY: ${{ secrets.RIG_KEY }}
+        run: |
+          [[ -d rig ]] || mv rig-src/rig rig
+          bash rig/job.sh cmd "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
       - name: verify
         shell: bash
         env:

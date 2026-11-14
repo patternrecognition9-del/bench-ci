@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# usage: job.sh PHASE NAME_A NAME_B PAIRS LOG2 THREADS SEED0 BUDGET DIAG PENV   (PHASE: prep build probe verify ident pair all)
+# usage: job.sh PHASE NAME_A NAME_B PAIRS LOG2 THREADS SEED0 BUDGET DIAG PENV   (PHASE: prep build probe cmd verify ident pair all)
 # cwd holds A/ B/ (checkouts), rig/ (this dir), optionally q/{a,b}.enc (encrypted patches).
 set -uo pipefail
 phase="$1"; shift
@@ -64,6 +64,7 @@ rustc --version
 }
 
 phase_build() {
+[[ -f "$root/q/nobuild" ]] && return 0
 echo "== build (setup.sh, challenge profile)"
 order="A B"; (( seed0 % 2 == 0 )) && order="B A"   # even shards build B first: the first build of a job runs cold
 echo "build order: $order"
@@ -134,6 +135,23 @@ if [[ "$diag" == 1 ]]; then
   done
 fi
 
+}
+
+phase_cmd() {
+# Lane-supplied command(s), run inside the tree(s); output leaves the runner only encrypted.
+[[ -f "$root/q/cmd.enc" ]] || return 0
+[[ -n "${RIG_KEY:-}" ]] || fail "cmd but no key"
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:RIG_KEY -in "$root/q/cmd.enc" -out "$root/cmd.sh" || fail "decrypt cmd"
+sides="B"; [[ -f "$root/q/cmd-both" ]] && sides="A B"
+export RIG_ROOT="$root" RIG_A="$root/A" RIG_B="$root/B" RIG_OUT="$out" RIG_THREADS="$th" CARGO_INCREMENTAL=0
+for X in $sides; do
+  t0=$(now)
+  ( cd "$root/$X" && RIG_SIDE=$X bash "$root/cmd.sh" ) > "$root/cmd-$X.log" 2>&1; rc=$?
+  t1=$(now)
+  echo "cmd $X rc=$rc secs=$(python3 -c "print('%.0f'%($t1-$t0))") lines=$(wc -l < "$root/cmd-$X.log" | tr -d ' ')" | tee -a "$out/summary.txt"
+  enc "$root/cmd-$X.log"
+done
+rm -f "$root/cmd.sh"
 }
 
 phase_verify() {
