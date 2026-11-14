@@ -3,7 +3,7 @@
 # cwd holds A/ B/ (checkouts), rig/ (this dir), optionally q/{a,b}.enc (encrypted patches).
 set -uo pipefail
 phase="$1"; shift
-name_a="$1"; name_b="$2"; pairs="$3"; log2="$4"; threads="$5"; seed0="$6"; budget="$7"; diag="${8:-0}"; penv="${9:-}"
+name_a="$1"; name_b="$2"; pairs="$3"; log2="$4"; threads="$5"; seed0="$6"; budget="$7"; diag="${8:-0}"; penv="${9:-}"; big="${10:-0}"; need="${11:-}"
 root="$PWD"; out="$root/out"; mkdir -p "$out"
 now() { python3 -c 'import time;print("%.1f"%time.time())'; }
 enc() { # encrypt a private log into the artifact dir; public log never shows it
@@ -19,6 +19,7 @@ export RUSTUP_TOOLCHAIN=1.97.0 FLOCK_REQUIRE_SANDBOX=1
 [[ -f "$out/rustflags" ]] && export RUSTFLAGS="$(cat "$out/rustflags")"
 wa="$root/A/target/challenge-candidate/challenge/flock-benchmark-worker"
 wb="$root/B/target/challenge-candidate/challenge/flock-benchmark-worker"
+memmb=$(( $(sysctl -n hw.memsize) / 1048576 ))
 th="$threads"; [[ "$th" == auto ]] && th=$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.ncpu)
 
 phase_prep() {
@@ -191,11 +192,16 @@ echo "identical=$ok (same-seed proof bytes A vs B at log2 12,16,18)" | tee -a "$
 }
 
 phase_pair() {
-(( pairs < 8 )) && { echo "== summary"; cat "$out/summary.txt"; return 0; }
-echo "== paired interleaved timing (log2=$log2 threads=$threads env=${penv:-none})"
+# The ranked 2^18 proof needs 8.2 GB: it is only timed when the job landed on a >= 12 GB runner (M2 Pro, 5 vCPU, 14 GB).
+plog2="$log2"; pp="$pairs"
+if (( big > 0 )); then
+  if (( memmb >= 12000 )); then plog2=18; pp="$big"; else pp=0; echo "no 2^18 timing: small runner (${memmb}MB)" | tee -a "$out/summary.txt"; fi
+fi
+(( pp < 8 )) && { echo "== summary"; cat "$out/summary.txt"; return 0; }
+echo "== paired interleaved timing (log2=$plog2 threads=$threads env=${penv:-none})"
 envargs=(); for kv in $penv; do envargs+=(--env "$kv"); done
 python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --name-a "$name_a" --name-b "$name_b" \
-  --pairs "$pairs" --log2 "$log2" --threads "$threads" --seed0 "$seed0" --budget "$budget" \
+  --pairs "$pp" --log2 "$plog2" --threads "$threads" --seed0 "$seed0" --budget "$budget" \
   ${envargs[@]+"${envargs[@]}"} --scratch "$root/pair-scratch" --out "$out/pair.json" | tee "$root/pair.log"
 rc=${PIPESTATUS[0]}
 grep -E "^(pair|detail|env|ready) " "$root/pair.log" >> "$out/summary.txt"
@@ -203,6 +209,10 @@ grep -E "^(pair|detail|env|ready) " "$root/pair.log" >> "$out/summary.txt"
 echo "== summary"; cat "$out/summary.txt"
 }
 
+if [[ "$phase" == prep && "$need" == big && $memmb -lt 12000 ]]; then
+  echo "RIGSKIP small runner (${memmb}MB) but the request needs >= 12 GB" | tee -a "$out/summary.txt"; touch "$out/skip"; exit 0
+fi
+[[ -f "$out/skip" ]] && { echo "skipped (small runner)"; exit 0; }
 case "$phase" in
   all) phase_prep; phase_build; phase_probe; phase_verify; phase_ident; phase_pair ;;
   *) "phase_$phase" ;;

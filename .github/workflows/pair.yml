@@ -15,6 +15,8 @@ on:
       budget: {description: seconds for the pair loop (0 = no limit), default: '0'}
       diag: {default: '0'}
       penv: {description: extra env for the perf pairs, default: ''}
+      big: {description: pairs at 2^18 when the runner has >= 12 GB, default: '0'}
+      need: {description: big = skip the job on a small runner, default: ''}
       tag: {default: ''}
 
 permissions:
@@ -45,7 +47,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh prep "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - name: build
         shell: bash
         env:
@@ -53,7 +55,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh build "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - name: probe
         shell: bash
         env:
@@ -61,7 +63,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh probe "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - name: cmd
         shell: bash
         env:
@@ -69,7 +71,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh cmd "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - name: verify
         shell: bash
         env:
@@ -77,7 +79,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh verify "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - name: ident
         shell: bash
         env:
@@ -85,7 +87,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh ident "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - name: pair
         shell: bash
         env:
@@ -93,7 +95,7 @@ jobs:
         run: |
           [[ -d rig ]] || mv rig-src/rig rig
           bash rig/job.sh pair "${{ inputs.a }}" "${{ inputs.b }}" "${{ inputs.pairs }}" "${{ inputs.log2 }}" \
-            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}"
+            "${{ inputs.threads }}" "$(( 20261114 + ${{ matrix.shard }} ))" "${{ inputs.budget }}" "${{ inputs.diag }}" "${{ inputs.penv }}" "${{ inputs.big }}" "${{ inputs.need }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
