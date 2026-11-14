@@ -189,7 +189,7 @@ echo "identical=$ok (same-seed proof bytes A vs B at log2 12,16,18)" | tee -a "$
 }
 
 phase_pair() {
-[[ "$pairs" == 0 ]] && return 0
+(( pairs < 8 )) && { echo "== summary"; cat "$out/summary.txt"; return 0; }
 echo "== paired interleaved timing (log2=$log2 threads=$threads env=${penv:-none})"
 envargs=(); for kv in $penv; do envargs+=(--env "$kv"); done
 python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --name-a "$name_a" --name-b "$name_b" \
