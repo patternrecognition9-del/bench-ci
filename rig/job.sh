@@ -31,6 +31,7 @@ if let d = MTLCreateSystemDefaultDevice() {
 } else { print("metal=none") }
 SWIFT
   swift "$root/metal.swift" 2>/dev/null || echo "metal=probe-failed"
+  /usr/bin/time -l ls / 2>&1 | grep -E "instructions|cycles" | tr -s ' ' | tr '\n' ';'; echo
   vm_stat | grep -E "Pages free|Pages active|Pages wired" | tr -s ' ' | tr '\n' ';'; echo
 } | tee "$out/runner.txt"
 
@@ -84,6 +85,21 @@ mkdir -p "$root/mem" && rm -f "$root/mem/"*
   env -i RAYON_NUM_THREADS="$th" TMPDIR="$root/mem" /usr/bin/time -l "$wa" "$log2" "$root/mem/ready" "$root/mem/proof" 2> "$root/mem/time.txt" || fail "direct worker run"
 grep -E "real|maximum resident|peak memory" "$root/mem/time.txt" | tr -s ' ' | tr '\n' ';' | tee -a "$out/summary.txt"; echo | tee -a "$out/summary.txt"
 
+if [[ "$diag" == 3 ]]; then
+  echo "== diag3: 2^18 under env toggles (direct launch, A): wall, cpu, instructions, footprint"
+  i=0
+  for cfg in "T=$th" "T=$th FLOCK_NO_GPU_COMMIT=1" "T=$th FLOCK_NO_GPU_COMMIT=1 FLOCK_NO_PREFAULT=1" \
+             "T=10 FLOCK_EPOOL_FORCE_THREADS=4" "T=$th" "T=$th FLOCK_NO_GPU_COMMIT=1" "T=10 FLOCK_EPOOL_FORCE_THREADS=4" "T=1"; do
+    i=$((i+1)); rm -f "$root/mem/ready" "$root/mem/proof"
+    t="${cfg%% *}"; t="${t#T=}"; extra="${cfg#T=$t}"
+    ( while [[ ! -f "$root/mem/ready" ]]; do sleep 0.02; done; echo 12345 ) | \
+      env -i RAYON_NUM_THREADS="$t" TMPDIR="$root/mem" FLOCK_PHASE_TIMING=1 $extra \
+      /usr/bin/time -l "$wa" "$log2" "$root/mem/ready" "$root/mem/proof" 2> "$root/mem/tog-$i.txt"
+    echo "toggle[$cfg]: $(grep -E " real|peak memory footprint|maximum resident|instructions retired|cycles elapsed" "$root/mem/tog-$i.txt" | tr -s ' ' | tr '\n' ';') proof=$(shasum -a 256 "$root/mem/proof" | cut -c1-12)" | tee -a "$out/summary.txt"
+  done
+  echo "-- stderr of run 1 (default)"; cut -c1-220 "$root/mem/tog-1.txt" | tail -80
+  echo "-- stderr of run 2 (nogpu)"; cut -c1-220 "$root/mem/tog-2.txt" | tail -80
+fi
 if [[ "$diag" == 2 ]]; then
   echo "== diag2: size sweep (direct launch, A): wall, footprint, proof phases, GPU on/off"
   for l in 14 15 16 17; do
