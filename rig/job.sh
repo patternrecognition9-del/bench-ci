@@ -66,11 +66,12 @@ rustc --version
 phase_build() {
 [[ -f "$root/q/nobuild" ]] && return 0
 echo "== build (setup.sh, challenge profile)"
-order="A B"; (( seed0 % 2 == 0 )) && order="B A"   # even shards build B first: the first build of a job runs cold
-echo "build order: $order"
-for X in $order; do
+# Order A (cold, warms the toolchain and the disk cache) -> B -> A again from scratch. The gate number is B vs the SECOND A.
+for X in A B A2; do
+  D=${X%2}
+  [[ $X == A2 ]] && rm -rf "$root/A/target/challenge-candidate"
   t0=$(now)
-  ( cd "$root/$X" && /usr/bin/time -p ./setup.sh ) > "$root/build-$X.log" 2>&1; rc=$?
+  ( cd "$root/$D" && /usr/bin/time -p ./setup.sh ) > "$root/build-$X.log" 2>&1; rc=$?
   t1=$(now)
   secs=$(python3 -c "print('%.1f'%($t1-$t0))")
   cpu=$(tail -3 "$root/build-$X.log" | awk '$1=="user"||$1=="sys"{s+=$2} END{printf "%.1f", s}')
@@ -81,7 +82,7 @@ for X in $order; do
   fi
   echo "build $X wall=${secs}s cpu=${cpu}s warnings=$(grep -c "^warning" "$root/build-$X.log")"
 done
-echo "build order=${order/ /} A=${build_A}s B=${build_B}s cpu A=${cpu_A}s B=${cpu_B}s cpu_ratio_B/A=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A}))")" | tee -a "$out/summary.txt"
+echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s wall_ratio_B/A2=$(python3 -c "print('%.3f'%(${build_B}/${build_A2}))") cpu_ratio_B/A2=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A2}))") cold_A1/A2=$(python3 -c "print('%.3f'%(${cpu_A}/${cpu_A2}))")" | tee -a "$out/summary.txt"
 ls -l "$wa" "$wb" | awk '{print "worker bytes", $5}'
 }
 
