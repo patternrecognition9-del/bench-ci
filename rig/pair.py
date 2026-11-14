@@ -146,7 +146,8 @@ def summarize(blocks, kind):
             pair.append((p / q - 1.0) * 100.0)
         ps = [s for l, s in t if l == "P"]
         qs = [s for l, s in t if l == "Q"]
-        block.append((sum(ps) / sum(qs) - 1.0) * 100.0)
+        if ps and qs:
+            block.append((sum(ps) / sum(qs) - 1.0) * 100.0)
         ta += ps
         tb += qs
     return pair, block, ta, tb
@@ -169,6 +170,8 @@ def main():
     ap.add_argument("--warm", type=int, default=2, help="discarded trials per binary first")
     ap.add_argument("--budget", type=float, default=0, help="stop adding blocks after N seconds")
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--expect", help="json {seed: sha} of A's proofs: run B only and compare")
+    ap.add_argument("--save-expect", help="write A's {seed: sha} here")
     ap.add_argument("--half", action="store_true", help="identity mode: one A and one B proof per seed")
     ap.add_argument("--env", action="append", default=[], help="K=V passed to both workers (the harness passes none)")
     a = ap.parse_args()
@@ -191,6 +194,8 @@ def main():
             "A" if w == wa else "B", r["secs"], r["ready"], r["rss"] / 1e6), flush=True)
 
     n_blocks = a.pairs if a.half else (a.pairs + 1) // 2
+    expect = json.load(open(a.expect)) if a.expect else None
+    saved = {}
     blocks, ident, rss_a, rss_b, sizes = [], True, 0, 0, set()
     done_pairs = 0
     for k in range(n_blocks):
@@ -203,6 +208,8 @@ def main():
             order = "PQQP" if k % 2 == 0 else "QPPQ"
             if a.half:
                 order = "PQ" if k % 2 == 0 else "QP"
+            if expect is not None and kind == "X" and str(seed) in expect:
+                order = "Q"
             t, shas, rd = [], {}, []
             for lab in order:
                 r = run.trial(wa if lab == "P" else other, seed)
@@ -215,6 +222,10 @@ def main():
                         rss_a = max(rss_a, r["rss"])
                     else:
                         rss_b = max(rss_b, r["rss"])
+            if order == "Q":
+                shas["P"] = {expect[str(seed)]}
+            elif kind == "X" and len(shas.get("P", ())) == 1:
+                saved[str(seed)] = next(iter(shas["P"]))
             same = len(shas["P"] | shas["Q"]) == 1
             if kind == "X" and not same:
                 ident = False
@@ -223,6 +234,9 @@ def main():
                 k, kind, order, " ".join("%.4f" % s for _, s in t), same), flush=True)
         done_pairs += 2
 
+    if a.save_expect and saved:
+        with open(a.save_expect, "w") as f:
+            json.dump(saved, f)
     px, bx, ta, tb = summarize(blocks, "X")
     pn, bn, na, nb = summarize(blocks, "N")
     lo, hi = boot_ci(px)
@@ -232,10 +246,10 @@ def main():
         "aa": med(pn), "aa_spread": iqr(pn), "aa_ci95": list(boot_ci(pn)),
         "block_delta": med(bx), "block_aa": med(bn),
         "mean_delta": statistics.fmean(px) if px else None,
-        "pooled_median_delta": (med(ta) / med(tb) - 1) * 100 if ta else None,
-        "pooled_min_delta": (min(ta) / min(tb) - 1) * 100 if ta else None,
+        "pooled_median_delta": (med(ta) / med(tb) - 1) * 100 if (ta and tb) else None,
+        "pooled_min_delta": (min(ta) / min(tb) - 1) * 100 if (ta and tb) else None,
         "pooled_p25_delta": ((statistics.quantiles(ta, n=4)[0] / statistics.quantiles(tb, n=4)[0] - 1) * 100
-                             if len(ta) >= 4 else None),
+                             if (len(ta) >= 4 and len(tb) >= 4) else None),
         "median_secs_a": med(ta), "median_secs_b": med(tb),
         "identical": ident, "proof_bytes": sorted(sizes),
         "peak_rss_a": rss_a, "peak_rss_b": rss_b,
@@ -248,8 +262,9 @@ def main():
         json.dump(res, f)
     print("pair A=%s B=%s delta=%+.3f%% spread=%.3f%% n=%d aa=%+.3f%%" % (
         a.name_a, a.name_b, res["delta"], res["spread"], res["pairs"], res["aa"]))
-    print("identical=%s (same-seed proof bytes A vs B, %d seeds) proof_bytes=%s" % (
-        "yes" if ident else "no", len(bx), sorted(sizes)))
+    print("identical=%s (same-seed proof bytes A vs B, %d seeds%s) proof_bytes=%s" % (
+        "yes" if ident else "no", sum(1 for b in blocks if b["kind"] == "X"),
+        ", A from the cached record hashes" if expect is not None else "", sorted(sizes)))
     print("detail ci95=[%+.3f,%+.3f] aa_ci95=[%+.3f,%+.3f] aa_spread=%.3f%% block_delta=%+.3f%% "
           "pooled_median=%+.3f%% pooled_p25=%+.3f%% pooled_min=%+.3f%% mean=%+.3f%%" % (
               lo, hi, res["aa_ci95"][0], res["aa_ci95"][1], res["aa_spread"], res["block_delta"],

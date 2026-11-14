@@ -68,8 +68,13 @@ rustc --version
 phase_build() {
 [[ -f "$root/q/nobuild" ]] && return 0
 echo "== build (setup.sh, challenge profile)"
-# Order A (cold, warms the toolchain and the disk cache) -> B -> A again from scratch. The gate number is B vs the SECOND A.
-for X in A B A2; do
+# Full tier: A (cold, warms the toolchain and the disk cache) -> B -> A again from scratch; the gate number is B vs the SECOND A.
+# Lite tier (q/lite + the record's worker in the Actions cache): build B only; A's worker, build seconds and proof hashes come
+# from the job that first built this base.
+ac="$root/acache"; lite=0
+[[ -f "$root/q/lite" && ! -f "$root/q/a.enc" && -f "$ac/flock-benchmark-worker" && -f "$ac/meta" ]] && lite=1
+seq="A B A2"; [[ $lite == 1 ]] && seq="B"
+for X in $seq; do
   D=${X%2}
   [[ $X == A2 ]] && rm -rf "$root/A/target/challenge-candidate"
   t0=$(now)
@@ -84,7 +89,16 @@ for X in A B A2; do
   fi
   echo "build $X wall=${secs}s cpu=${cpu}s warnings=$(grep -c "^warning" "$root/build-$X.log")"
 done
-echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s wall_ratio_B/A2=$(python3 -c "print('%.3f'%(${build_B}/${build_A2}))") cpu_ratio_B/A2=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A2}))") cold_A1/A2=$(python3 -c "print('%.3f'%(${cpu_A}/${cpu_A2}))")" | tee -a "$out/summary.txt"
+hw="$(sysctl -n machdep.cpu.brand_string | tr -d ' ()')-${memmb}"
+if [[ $lite == 1 ]]; then
+  mkdir -p "$(dirname "$wa")" && cp "$ac/flock-benchmark-worker" "$wa" && chmod +x "$wa"
+  echo "build lite hw=$hw B(cold)=${build_B}s cpu B=${cpu_B}s | cached record build: $(cat "$ac/meta")" | tee -a "$out/summary.txt"
+else
+  echo "build A1(cold)=${build_A}s B=${build_B}s A2=${build_A2}s cpu A1=${cpu_A}s B=${cpu_B}s A2=${cpu_A2}s wall_ratio_B/A2=$(python3 -c "print('%.3f'%(${build_B}/${build_A2}))") cpu_ratio_B/A2=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A2}))") cold_A1/A2=$(python3 -c "print('%.3f'%(${cpu_A}/${cpu_A2}))") hw=$hw" | tee -a "$out/summary.txt"
+  if [[ ! -f "$root/q/a.enc" && ! -f "$ac/meta" ]]; then
+    mkdir -p "$ac" && cp "$wa" "$ac/flock-benchmark-worker" && echo "hw=$hw cpu A1(cold)=${cpu_A}s A2=${cpu_A2}s wall A1=${build_A}s A2=${build_A2}s" > "$ac/meta"
+  fi
+fi
 ls -l "$wa" "$wb" | awk '{print "worker bytes", $5}'
 }
 
@@ -179,11 +193,15 @@ done
 phase_ident() {
 [[ "$pairs" == 0 ]] && return 0
 echo "== same-seed proof bytes A vs B (log2 12, 16: 4 seeds each; log2 18: 1 seed, 4 on a 14 GB runner)"
-ok=yes
+ok=yes; ac="$root/acache"
 for l in 12 16 18; do
   n=4; [[ $l == 18 ]] && n=1; [[ $l == 18 && $memmb -ge 12000 ]] && n=4
+  ex="$ac/ident-$l-$((seed0 + l)).json"; exargs=()
+  if [[ ! -f "$root/q/a.enc" ]]; then
+    if [[ -f "$root/q/lite" && -f "$ex" ]]; then exargs=(--expect "$ex"); elif [[ -d "$ac" && ! -f "$ex" ]]; then exargs=(--save-expect "$ex"); fi
+  fi
   python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --pairs $n --log2 $l --threads "$threads" --seed0 $((seed0 + l)) \
-    --no-aa --warm 0 --half --scratch "$root/ident-scratch" --out "$out/ident-$l.json" > "$root/ident-$l.log" 2>&1 || { tail -5 "$root/ident-$l.log"; fail "ident driver log2=$l"; }
+    --no-aa --warm 0 --half ${exargs[@]+"${exargs[@]}"} --scratch "$root/ident-scratch" --out "$out/ident-$l.json" > "$root/ident-$l.log" 2>&1 || { tail -5 "$root/ident-$l.log"; fail "ident driver log2=$l"; }
   line=$(grep "^identical=" "$root/ident-$l.log")
   echo "ident log2=$l $line"
   [[ "$line" == identical=yes* ]] || ok=no

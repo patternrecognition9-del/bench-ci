@@ -40,6 +40,10 @@ jobs:
       - uses: actions/checkout@v4
         if: ${{ inputs.q != '' }}
         with: {ref: '${{ inputs.q }}', path: q, persist-credentials: false}
+      - uses: actions/cache@v4
+        with:
+          path: acache
+          key: acache-v1-${{ inputs.a }}
       - name: prep
         shell: bash
         env:
