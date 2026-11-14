@@ -193,15 +193,15 @@ echo "identical=$ok (same-seed proof bytes A vs B at log2 12,16,18)" | tee -a "$
 
 phase_pair() {
 # The ranked 2^18 proof needs 8.2 GB: it is only timed when the job landed on a >= 12 GB runner (M2 Pro, 5 vCPU, 14 GB).
-plog2="$log2"; pp="$pairs"
+plog2="$log2"; pp="$pairs"; noaa=""
 if (( big > 0 )); then
-  if (( memmb >= 12000 )); then plog2=18; pp="$big"; else pp=0; echo "no 2^18 timing: small runner (${memmb}MB)" | tee -a "$out/summary.txt"; fi
+  if (( memmb >= 12000 )); then plog2=18; pp="$big"; noaa="--no-aa"; else pp=0; echo "no 2^18 timing: small runner (${memmb}MB)" | tee -a "$out/summary.txt"; fi
 fi
 (( pp < 8 )) && { echo "== summary"; cat "$out/summary.txt"; return 0; }
 echo "== paired interleaved timing (log2=$plog2 threads=$threads env=${penv:-none})"
 envargs=(); for kv in $penv; do envargs+=(--env "$kv"); done
 python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --name-a "$name_a" --name-b "$name_b" \
-  --pairs "$pp" --log2 "$plog2" --threads "$threads" --seed0 "$seed0" --budget "$budget" \
+  --pairs "$pp" --log2 "$plog2" --threads "$threads" --seed0 "$seed0" --budget "$budget" $noaa \
   ${envargs[@]+"${envargs[@]}"} --scratch "$root/pair-scratch" --out "$out/pair.json" | tee "$root/pair.log"
 rc=${PIPESTATUS[0]}
 grep -E "^(pair|detail|env|ready) " "$root/pair.log" >> "$out/summary.txt"
