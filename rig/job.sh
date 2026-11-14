@@ -174,7 +174,8 @@ rm -f "$root/cmd.sh"
 phase_verify() {
 [[ "$pairs" == 0 ]] && return 0
 echo "== trusted verifier (benchmark.sh; private seeds) at log2=10 and log2=$log2"
-for X in A B; do
+sides="A B"; [[ -f "$root/q/lite" && ! -f "$root/q/a.enc" && ! -d "$root/A/target/challenge-candidate/challenge/build" ]] && sides="B"
+for X in $sides; do
   sizes="10"; [[ $X == B ]] && sizes="10 18"
   for l in $sizes; do
     runs=2; [[ $l == 18 ]] && runs=1
