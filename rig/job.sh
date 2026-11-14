@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# usage: job.sh PHASE NAME_A NAME_B PAIRS LOG2 THREADS SEED0 BUDGET DIAG   (PHASE: prep build probe verify pair all)
+# usage: job.sh PHASE NAME_A NAME_B PAIRS LOG2 THREADS SEED0 BUDGET DIAG PENV   (PHASE: prep build probe verify ident pair all)
 # cwd holds A/ B/ (checkouts), rig/ (this dir), optionally q/{a,b}.enc (encrypted patches).
 set -uo pipefail
 phase="$1"; shift
-name_a="$1"; name_b="$2"; pairs="$3"; log2="$4"; threads="$5"; seed0="$6"; budget="$7"; diag="${8:-0}"
+name_a="$1"; name_b="$2"; pairs="$3"; log2="$4"; threads="$5"; seed0="$6"; budget="$7"; diag="${8:-0}"; penv="${9:-}"
 root="$PWD"; out="$root/out"; mkdir -p "$out"
 now() { python3 -c 'import time;print("%.1f"%time.time())'; }
 enc() { # encrypt a private log into the artifact dir; public log never shows it
@@ -67,22 +67,23 @@ phase_build() {
 echo "== build (setup.sh, challenge profile)"
 for X in A B; do
   t0=$(now)
-  ( cd "$root/$X" && ./setup.sh ) > "$root/build-$X.log" 2>&1; rc=$?
+  ( cd "$root/$X" && /usr/bin/time -p ./setup.sh ) > "$root/build-$X.log" 2>&1; rc=$?
   t1=$(now)
   secs=$(python3 -c "print('%.1f'%($t1-$t0))")
-  eval "build_$X=$secs"
+  cpu=$(tail -3 "$root/build-$X.log" | awk '$1=="user"||$1=="sys"{s+=$2} END{printf "%.1f", s}')
+  eval "build_$X=$secs; cpu_$X=$cpu"
   if [[ $rc != 0 ]]; then
     if [[ $private == 1 ]]; then enc "$root/build-$X.log"; else grep -A12 "^error" "$root/build-$X.log" | head -80; fi
     fail "build $X rc=$rc after ${secs}s"
   fi
-  grep -c "warning" "$root/build-$X.log" | sed "s/^/build $X warnings=/"
-  echo "build $X wall=${secs}s"
+  echo "build $X wall=${secs}s cpu=${cpu}s warnings=$(grep -c "^warning" "$root/build-$X.log")"
 done
-echo "build A=${build_A}s B=${build_B}s" | tee -a "$out/summary.txt"
+echo "build A=${build_A}s B=${build_B}s cpu A=${cpu_A}s B=${cpu_B}s cpu_ratio_B/A=$(python3 -c "print('%.3f'%(${cpu_B}/${cpu_A}))")" | tee -a "$out/summary.txt"
 ls -l "$wa" "$wb" | awk '{print "worker bytes", $5}'
 }
 
 phase_probe() {
+[[ "$diag" == 0 ]] && return 0
 echo "== peak memory of one proof (/usr/bin/time -l, log2=$log2)"
 mkdir -p "$root/mem" && rm -f "$root/mem/"*
 ( while [[ ! -f "$root/mem/ready" ]]; do sleep 0.05; done; echo 12345 ) | \
@@ -137,33 +138,50 @@ phase_verify() {
 [[ "$pairs" == 0 ]] && return 0
 echo "== trusted verifier (benchmark.sh; private seeds) at log2=10 and log2=$log2"
 for X in A B; do
-  for l in 10 "$log2"; do
-    ( cd "$root/$X" && BLAKE3_LOG2="$l" BLAKE3_THREADS="$threads" BLAKE3_WARMUP_RUNS=0 BLAKE3_RUNS=2 \
+  sizes="10"; [[ $X == B ]] && sizes="10 18"
+  for l in $sizes; do
+    runs=2; [[ $l == 18 ]] && runs=1
+    ( cd "$root/$X" && BLAKE3_LOG2="$l" BLAKE3_THREADS=auto BLAKE3_WARMUP_RUNS=0 BLAKE3_RUNS=$runs \
         BENCHMARK_OUTPUT_DIR="$root/bench-$X" ./benchmark.sh ) > "$root/verify-$X-$l.log" 2>&1; rc=$?
     if [[ $rc != 0 ]]; then
       if [[ $private == 1 ]]; then enc "$root/verify-$X-$l.log"; else tail -30 "$root/verify-$X-$l.log"; fi
       echo "verify $X log2=$l REJECTED" | tee -a "$out/summary.txt"
       fail "trusted verifier rejected $X at log2=$l"
     fi
-    echo "verify $X log2=$l OK $(grep -E 'Median latency|Threads' "$root/verify-$X-$l.log" | tr -d '\n') recompiled=$(grep -c '^ *Compiling' "$root/verify-$X-$l.log")" | tee -a "$out/summary.txt"
+    echo "verify $X log2=$l OK (trusted verifier, private seed) recompiled=$(grep -c '^ *Compiling' "$root/verify-$X-$l.log")" | tee -a "$out/summary.txt"
   done
 done
+}
 
+phase_ident() {
+[[ "$pairs" == 0 ]] && return 0
+echo "== same-seed proof bytes A vs B (log2 12, 16: 2 seeds each; log2 18: 1 seed)"
+ok=yes
+for l in 12 16 18; do
+  n=4; [[ $l == 18 ]] && n=2
+  python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --pairs $n --log2 $l --threads "$threads" --seed0 $((seed0 + l)) \
+    --no-aa --warm 0 --half --scratch "$root/ident-scratch" --out "$out/ident-$l.json" > "$root/ident-$l.log" 2>&1 || { tail -5 "$root/ident-$l.log"; fail "ident driver log2=$l"; }
+  line=$(grep "^identical=" "$root/ident-$l.log")
+  echo "ident log2=$l $line"
+  [[ "$line" == identical=yes* ]] || ok=no
+done
+echo "identical=$ok (same-seed proof bytes A vs B at log2 12,16,18)" | tee -a "$out/summary.txt"
 }
 
 phase_pair() {
 [[ "$pairs" == 0 ]] && return 0
-echo "== paired interleaved timing"
+echo "== paired interleaved timing (log2=$log2 threads=$threads env=${penv:-none})"
+envargs=(); for kv in $penv; do envargs+=(--env "$kv"); done
 python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --name-a "$name_a" --name-b "$name_b" \
   --pairs "$pairs" --log2 "$log2" --threads "$threads" --seed0 "$seed0" --budget "$budget" \
-  --scratch "$root/pair-scratch" --out "$out/pair.json" | tee "$root/pair.log"
+  ${envargs[@]+"${envargs[@]}"} --scratch "$root/pair-scratch" --out "$out/pair.json" | tee "$root/pair.log"
 rc=${PIPESTATUS[0]}
-grep -E "^(pair|identical|detail|env) " "$root/pair.log" >> "$out/summary.txt"
+grep -E "^(pair|detail|env|ready) " "$root/pair.log" >> "$out/summary.txt"
 [[ $rc == 0 ]] || fail "pair driver rc=$rc"
 echo "== summary"; cat "$out/summary.txt"
 }
 
 case "$phase" in
-  all) phase_prep; phase_build; phase_probe; phase_verify; phase_pair ;;
+  all) phase_prep; phase_build; phase_probe; phase_verify; phase_ident; phase_pair ;;
   *) "phase_$phase" ;;
 esac
