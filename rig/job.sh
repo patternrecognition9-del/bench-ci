@@ -38,6 +38,7 @@ SWIFT
   /usr/bin/time -l ls / 2>&1 | grep -E "instructions|cycles" | tr -s ' ' | tr '\n' ';'; echo
   vm_stat | grep -E "Pages free|Pages active|Pages wired" | tr -s ' ' | tr '\n' ';'; echo
 } | tee "$out/runner.txt"
+echo "runner $(sysctl -n machdep.cpu.brand_string) ncpu=$(sysctl -n hw.ncpu) mem=$(( $(sysctl -n hw.memsize) / 1048576 ))MB" >> "$out/summary.txt"
 
 for x in a b; do
   if [[ -f "$root/q/$x.enc" ]]; then
