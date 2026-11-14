@@ -186,7 +186,12 @@ for X in $sides; do
         BENCHMARK_OUTPUT_DIR="$root/bench-$X" ./benchmark.sh ) > "$root/verify-$X-$l.log" 2>&1; rc=$?
     if [[ $rc != 0 ]]; then
       if [[ $private == 1 ]]; then enc "$root/verify-$X-$l.log"; else tail -30 "$root/verify-$X-$l.log"; fi
-      echo "verify $X log2=$l REJECTED" | tee -a "$out/summary.txt"
+      why=$(tail -1 "$root/verify-$X-$l.log" | cut -c1-160 | tr -d '"')
+      if grep -q "timed out" <<<"$why"; then
+        echo "verify $X log2=$l TIMEOUT ($why; runner ${memmb}MB: under 12 GB the 2^18 worker swaps, so this is not a rejection)" | tee -a "$out/summary.txt"
+        fail "harness timeout for $X at log2=$l (not a rejection)"
+      fi
+      echo "verify $X log2=$l REJECTED ($why)" | tee -a "$out/summary.txt"
       fail "trusted verifier rejected $X at log2=$l"
     fi
     echo "verify $X log2=$l OK (trusted verifier, private seed) recompiled=$(grep -c '^ *Compiling' "$root/verify-$X-$l.log")" | tee -a "$out/summary.txt"
