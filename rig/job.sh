@@ -206,16 +206,28 @@ phase_ident() {
 echo "== same-seed proof bytes A vs B (log2 12, 16: 4 seeds each; log2 18: 1 seed, 4 on a 14 GB runner)"
 ok=yes; ac="$root/acache"
 for l in 12 16 18; do
-  n=4; [[ $l == 18 ]] && n=1; [[ $l == 18 && $memmb -ge 12000 ]] && n=4
+  n=4; [[ $l == 18 ]] && n=1; [[ $l == 18 && $memmb -ge 12000 ]] && n=6
   ex="$ac/ident-$l-$((seed0 + l)).json"; exargs=()
   if [[ ! -f "$root/q/a.enc" ]]; then
-    if [[ -f "$root/q/lite" && -f "$ex" ]]; then exargs=(--expect "$ex"); elif [[ -d "$ac" && ! -f "$ex" ]]; then exargs=(--save-expect "$ex"); fi
+    # cached A hashes spare the swapping A run at 2^18 on a 7 GB runner; elsewhere both sides run (start-up comparison needs A)
+    if [[ -f "$root/q/lite" && -f "$ex" && $l == 18 && $memmb -lt 12000 ]]; then exargs=(--expect "$ex"); elif [[ -d "$ac" && ! -f "$ex" ]]; then exargs=(--save-expect "$ex"); fi
   fi
   python3 "$root/rig/pair.py" --a "$wa" --b "$wb" --pairs $n --log2 $l --threads "$threads" --seed0 $((seed0 + l)) \
     --no-aa --warm 0 --half ${exargs[@]+"${exargs[@]}"} --scratch "$root/ident-scratch" --out "$out/ident-$l.json" > "$root/ident-$l.log" 2>&1 || { tail -5 "$root/ident-$l.log"; fail "ident driver log2=$l"; }
   line=$(grep "^identical=" "$root/ident-$l.log")
   echo "ident log2=$l $line"
   [[ "$line" == identical=yes* ]] || ok=no
+  if [[ $l == 16 || ( $l == 18 && $memmb -ge 12000 ) ]]; then
+    python3 - "$out/ident-$l.json" "$l" <<'PY' | tee -a "$out/summary.txt"
+import json, statistics, sys
+j = json.load(open(sys.argv[1]))
+a = [x for b in j["blocks"] for l, x in b["ready"] if l == "P"]
+q = [x for b in j["blocks"] for l, x in b["ready"] if l == "Q"]
+if a and q:
+    print("startup log2=%s (worker spawn -> ready, incl. the warm-up proof; median of %d workers each) A=%.2fs B=%.2fs B-A=%+.2fs range A %.2f-%.2f B %.2f-%.2f" % (
+        sys.argv[2], len(a), statistics.median(a), statistics.median(q), statistics.median(q) - statistics.median(a), min(a), max(a), min(q), max(q)))
+PY
+  fi
 done
 echo "identical=$ok (same-seed proof bytes A vs B at log2 12,16,18)" | tee -a "$out/summary.txt"
 }
